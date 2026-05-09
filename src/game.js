@@ -2,9 +2,11 @@ const canvas = document.querySelector("#game");
 const ctx = canvas.getContext("2d");
 const scoreEl = document.querySelector("#score");
 const streakEl = document.querySelector("#streak");
+const bestEl = document.querySelector("#best");
 const panel = document.querySelector("#panel");
 const startButton = document.querySelector("#start");
 const muteButton = document.querySelector("#mute");
+const pauseButton = document.querySelector("#pause");
 
 const W = canvas.width;
 const H = canvas.height;
@@ -13,6 +15,7 @@ const pointer = { active: false, x: W / 2 };
 const chef = { x: W / 2, y: H - 70, w: 86, h: 34, speed: 560 };
 const drops = [];
 const sparks = [];
+const floaters = [];
 
 let last = 0;
 let spawnTimer = 0;
@@ -20,8 +23,14 @@ let score = 0;
 let streak = 1;
 let lives = 3;
 let running = false;
+let paused = false;
 let muted = false;
 let audio;
+let slowMo = 0;
+let best = Number(localStorage.getItem("comet-kitchen-best") || 0);
+
+const introTitle = "Comet Kitchen";
+const introText = "Catch ingredients, dodge burnt meteors, and grab golden timers for slow motion.";
 
 const foods = [
   { name: "berry", color: "#f25d78", points: 10 },
@@ -40,7 +49,10 @@ function resizeCanvas() {
 
 function beep(freq, duration, type = "sine", gain = 0.04) {
   if (muted) return;
-  audio ||= new AudioContext();
+  const AudioCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtor) return;
+  audio ||= new AudioCtor();
+  if (audio.state === "suspended") audio.resume();
   const osc = audio.createOscillator();
   const amp = audio.createGain();
   osc.frequency.value = freq;
@@ -55,12 +67,19 @@ function beep(freq, duration, type = "sine", gain = 0.04) {
 function reset() {
   drops.length = 0;
   sparks.length = 0;
+  floaters.length = 0;
   chef.x = W / 2;
   spawnTimer = 0;
   score = 0;
   streak = 1;
   lives = 3;
+  slowMo = 0;
   running = true;
+  paused = false;
+  pauseButton.textContent = "II";
+  panel.querySelector("h1").textContent = introTitle;
+  panel.querySelector("p").textContent = introText;
+  startButton.textContent = "Start cooking";
   panel.classList.add("hidden");
   updateHud();
   beep(330, 0.08, "square");
@@ -69,18 +88,21 @@ function reset() {
 function updateHud() {
   scoreEl.textContent = score;
   streakEl.textContent = `x${streak}`;
+  bestEl.textContent = best;
 }
 
 function spawnDrop() {
   const bad = Math.random() < Math.min(0.16 + score / 3000, 0.38);
+  const bonus = !bad && Math.random() < 0.075;
   const food = foods[Math.floor(Math.random() * foods.length)];
   drops.push({
     x: 45 + Math.random() * (W - 90),
     y: -40,
-    r: bad ? 22 : 18,
-    vy: 150 + Math.random() * 90 + score / 25,
+    r: bad ? 22 : bonus ? 20 : 18,
+    vy: 150 + Math.random() * 90 + score / 28,
     spin: Math.random() * Math.PI,
     bad,
+    bonus,
     food,
   });
 }
@@ -98,10 +120,19 @@ function addSparks(x, y, color, count = 10) {
   }
 }
 
+function addFloater(text, x, y, color = "#f8f0c9") {
+  floaters.push({ text, x, y, color, life: 0.9 });
+}
+
 function step(dt) {
+  if (slowMo > 0) {
+    slowMo -= dt;
+    dt *= 0.58;
+  }
+
   let dir = 0;
-  if (keys.has("ArrowLeft") || keys.has("a")) dir -= 1;
-  if (keys.has("ArrowRight") || keys.has("d")) dir += 1;
+  if (keys.has("ArrowLeft") || keys.has("a") || keys.has("A")) dir -= 1;
+  if (keys.has("ArrowRight") || keys.has("d") || keys.has("D")) dir += 1;
   chef.x += dir * chef.speed * dt;
   if (pointer.active) chef.x += (pointer.x - chef.x) * Math.min(1, dt * 8);
   chef.x = Math.max(chef.w / 2, Math.min(W - chef.w / 2, chef.x));
@@ -130,7 +161,14 @@ function step(dt) {
         addSparks(drop.x, drop.y, "#e45c47", 16);
         beep(90, 0.18, "sawtooth", 0.06);
       } else {
-        score += drop.food.points * streak;
+        if (drop.bonus) {
+          slowMo = 4;
+          score += 50 * streak;
+          addFloater("SLOW!", drop.x, drop.y, "#f4d35e");
+          beep(720, 0.12, "triangle", 0.05);
+        } else {
+          score += drop.food.points * streak;
+        }
         streak = Math.min(streak + 1, 9);
         addSparks(drop.x, drop.y, drop.food.color, 12);
         beep(380 + streak * 45, 0.07, "triangle");
@@ -154,8 +192,18 @@ function step(dt) {
     if (s.life <= 0) sparks.splice(i, 1);
   }
 
+  for (let i = floaters.length - 1; i >= 0; i -= 1) {
+    const f = floaters[i];
+    f.y -= 44 * dt;
+    f.life -= dt;
+    if (f.life <= 0) floaters.splice(i, 1);
+  }
+
   if (lives <= 0) {
     running = false;
+    best = Math.max(best, score);
+    localStorage.setItem("comet-kitchen-best", String(best));
+    updateHud();
     panel.querySelector("h1").textContent = "Kitchen closed";
     panel.querySelector("p").textContent = `Final score: ${score}. The moon is already asking for seconds.`;
     startButton.textContent = "Cook again";
@@ -209,6 +257,11 @@ function drawDrop(drop) {
   ctx.translate(drop.x, drop.y);
   ctx.rotate(drop.spin);
   if (drop.bad) {
+    ctx.strokeStyle = "rgba(228, 92, 71, 0.5)";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(0, 0, drop.r + 7, 0, Math.PI * 2);
+    ctx.stroke();
     ctx.fillStyle = "#202020";
     ctx.beginPath();
     ctx.arc(0, 0, drop.r, 0, Math.PI * 2);
@@ -216,12 +269,19 @@ function drawDrop(drop) {
     ctx.fillStyle = "#e45c47";
     ctx.fillRect(-4, -drop.r - 8, 8, 13);
   } else {
-    ctx.fillStyle = drop.food.color;
+    ctx.fillStyle = drop.bonus ? "#f4b84a" : drop.food.color;
     ctx.beginPath();
-    ctx.roundRect(-drop.r, -drop.r, drop.r * 2, drop.r * 2, 8);
+    ctx.roundRect(-drop.r, -drop.r, drop.r * 2, drop.r * 2, drop.bonus ? 14 : 8);
     ctx.fill();
     ctx.fillStyle = "rgba(255,255,255,0.5)";
     ctx.fillRect(-drop.r + 7, -drop.r + 6, 9, 4);
+    if (drop.bonus) {
+      ctx.fillStyle = "#241307";
+      ctx.font = "700 18px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("T", 0, 2);
+    }
   }
   ctx.restore();
 }
@@ -237,6 +297,10 @@ function drawLives() {
 
 function render(t) {
   drawBackground(t);
+  if (slowMo > 0) {
+    ctx.fillStyle = "rgba(244, 184, 74, 0.08)";
+    ctx.fillRect(0, 0, W, H);
+  }
   drops.forEach(drawDrop);
   sparks.forEach((s) => {
     ctx.globalAlpha = Math.max(s.life, 0);
@@ -244,25 +308,52 @@ function render(t) {
     ctx.fillRect(s.x, s.y, 5, 5);
     ctx.globalAlpha = 1;
   });
+  floaters.forEach((f) => {
+    ctx.globalAlpha = Math.max(f.life, 0);
+    ctx.fillStyle = f.color;
+    ctx.font = "900 24px system-ui";
+    ctx.textAlign = "center";
+    ctx.fillText(f.text, f.x, f.y);
+    ctx.globalAlpha = 1;
+  });
   drawChef();
   drawLives();
+  if (paused) {
+    ctx.fillStyle = "rgba(8, 12, 11, 0.56)";
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#f6f0df";
+    ctx.font = "900 46px system-ui";
+    ctx.textAlign = "center";
+    ctx.fillText("Paused", W / 2, H / 2);
+  }
 }
 
 function loop(t) {
   const dt = Math.min((t - last) / 1000 || 0, 0.033);
   last = t;
-  if (running) step(dt);
+  if (running && !paused) step(dt);
   render(t);
   requestAnimationFrame(loop);
 }
 
 startButton.addEventListener("click", reset);
+pauseButton.addEventListener("click", () => {
+  if (!running) return;
+  paused = !paused;
+  pauseButton.textContent = paused ? ">" : "II";
+});
 muteButton.addEventListener("click", () => {
   muted = !muted;
-  muteButton.textContent = muted ? "×" : "♪";
+  muteButton.textContent = muted ? "X" : "♪";
 });
 
 window.addEventListener("keydown", (event) => {
+  if (["ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
+  if ((event.key === "p" || event.key === "P") && running) {
+    paused = !paused;
+    pauseButton.textContent = paused ? ">" : "II";
+    return;
+  }
   keys.add(event.key);
   if (event.key === " " && !running) reset();
 });
@@ -280,4 +371,5 @@ window.addEventListener("pointerup", () => {
 window.addEventListener("resize", resizeCanvas);
 
 resizeCanvas();
+updateHud();
 requestAnimationFrame(loop);
