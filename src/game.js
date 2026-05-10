@@ -9,9 +9,10 @@ const muteButton = document.querySelector("#mute");
 const pauseButton = document.querySelector("#pause");
 
 const W = canvas.width;
-const H = canvas.height;
+let H = canvas.height;
 const keys = new Set();
 const pointer = { active: false, x: W / 2 };
+const viewport = { scale: 1, offsetX: 0, offsetY: 0, width: W, height: H };
 const chef = { x: W / 2, y: H - 70, w: 86, h: 34, speed: 560 };
 const drops = [];
 const sparks = [];
@@ -44,7 +45,21 @@ function resizeCanvas() {
   const rect = canvas.getBoundingClientRect();
   canvas.width = Math.floor(rect.width * ratio);
   canvas.height = Math.floor(rect.height * ratio);
-  ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+  viewport.scale = canvas.width / W;
+  H = canvas.height / viewport.scale;
+  viewport.width = W * viewport.scale;
+  viewport.height = H * viewport.scale;
+  viewport.offsetX = 0;
+  viewport.offsetY = 0;
+  chef.y = H - 70;
+  ctx.setTransform(viewport.scale, 0, 0, viewport.scale, viewport.offsetX, viewport.offsetY);
+}
+
+function screenToWorldX(event) {
+  const rect = canvas.getBoundingClientRect();
+  const cssScale = canvas.width / rect.width;
+  const canvasX = (event.clientX - rect.left) * cssScale;
+  return (canvasX - viewport.offsetX) / viewport.scale;
 }
 
 function beep(freq, duration, type = "sine", gain = 0.04) {
@@ -69,6 +84,7 @@ function reset() {
   sparks.length = 0;
   floaters.length = 0;
   chef.x = W / 2;
+  chef.y = H - 70;
   spawnTimer = 0;
   score = 0;
   streak = 1;
@@ -225,14 +241,15 @@ function drawBackground(t) {
     ctx.fillRect(x, y, 2, 2);
   }
 
+  const moonY = H > 900 ? 170 : 96;
   ctx.fillStyle = "#f3d98d";
   ctx.beginPath();
-  ctx.arc(W - 100, 96, 42, 0, Math.PI * 2);
+  ctx.arc(W - 100, moonY, 42, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = "#c99765";
   ctx.beginPath();
-  ctx.arc(W - 116, 84, 7, 0, Math.PI * 2);
-  ctx.arc(W - 86, 104, 9, 0, Math.PI * 2);
+  ctx.arc(W - 116, moonY - 12, 7, 0, Math.PI * 2);
+  ctx.arc(W - 86, moonY + 8, 9, 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -296,6 +313,12 @@ function drawLives() {
 }
 
 function render(t) {
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#0d1211";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+  ctx.setTransform(viewport.scale, 0, 0, viewport.scale, viewport.offsetX, viewport.offsetY);
   drawBackground(t);
   if (slowMo > 0) {
     ctx.fillStyle = "rgba(244, 184, 74, 0.08)";
@@ -360,10 +383,10 @@ window.addEventListener("keydown", (event) => {
 window.addEventListener("keyup", (event) => keys.delete(event.key));
 canvas.addEventListener("pointerdown", (event) => {
   pointer.active = true;
-  pointer.x = (event.offsetX / canvas.clientWidth) * W;
+  pointer.x = screenToWorldX(event);
 });
 canvas.addEventListener("pointermove", (event) => {
-  if (pointer.active) pointer.x = (event.offsetX / canvas.clientWidth) * W;
+  if (pointer.active) pointer.x = screenToWorldX(event);
 });
 window.addEventListener("pointerup", () => {
   pointer.active = false;
