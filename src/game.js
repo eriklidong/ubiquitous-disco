@@ -3,6 +3,7 @@ const ctx = canvas.getContext("2d");
 const scoreEl = document.querySelector("#score");
 const streakEl = document.querySelector("#streak");
 const bestEl = document.querySelector("#best");
+const levelEl = document.querySelector("#level");
 const panel = document.querySelector("#panel");
 const startButton = document.querySelector("#start");
 const muteButton = document.querySelector("#mute");
@@ -28,16 +29,28 @@ let paused = false;
 let muted = false;
 let audio;
 let slowMo = 0;
+let magnet = 0;
+let shield = 0;
+let rush = 0;
+let shake = 0;
+let comboCatches = 0;
+let level = 1;
 let best = Number(localStorage.getItem("comet-kitchen-best") || 0);
 
 const introTitle = "Comet Kitchen";
-const introText = "Catch ingredients, dodge burnt meteors, and grab golden timers for slow motion.";
+const introText = "Build combos, trigger Rush Mode, and grab powerups before the kitchen gets wild.";
 
 const foods = [
   { name: "berry", color: "#f25d78", points: 10 },
   { name: "star noodle", color: "#f4d35e", points: 15 },
   { name: "mint cube", color: "#72d7a5", points: 20 },
   { name: "moon egg", color: "#f8f0c9", points: 25 },
+];
+
+const powerups = [
+  { type: "slow", label: "T", color: "#f4b84a", text: "SLOW!" },
+  { type: "magnet", label: "M", color: "#64d2ff", text: "MAGNET!" },
+  { type: "shield", label: "S", color: "#a987ff", text: "SHIELD!" },
 ];
 
 function resizeCanvas() {
@@ -90,6 +103,12 @@ function reset() {
   streak = 1;
   lives = 3;
   slowMo = 0;
+  magnet = 0;
+  shield = 0;
+  rush = 0;
+  shake = 0;
+  comboCatches = 0;
+  level = 1;
   running = true;
   paused = false;
   pauseButton.textContent = "II";
@@ -103,23 +122,28 @@ function reset() {
 
 function updateHud() {
   scoreEl.textContent = score;
-  streakEl.textContent = `x${streak}`;
+  streakEl.textContent = rush > 0 ? `RUSH` : `x${streak}`;
   bestEl.textContent = best;
+  levelEl.textContent = level;
 }
 
 function spawnDrop() {
-  const bad = Math.random() < Math.min(0.16 + score / 3000, 0.38);
-  const bonus = !bad && Math.random() < 0.075;
+  level = Math.floor(score / 650) + 1;
+  const bad = Math.random() < Math.min(0.14 + level * 0.018, 0.42);
+  const bonus = !bad && Math.random() < Math.min(0.07 + level * 0.004, 0.13);
   const food = foods[Math.floor(Math.random() * foods.length)];
+  const powerup = bonus ? powerups[Math.floor(Math.random() * powerups.length)] : null;
   drops.push({
     x: 45 + Math.random() * (W - 90),
     y: -40,
     r: bad ? 22 : bonus ? 20 : 18,
-    vy: 150 + Math.random() * 90 + score / 28,
+    vy: 150 + Math.random() * 90 + level * 18 + (rush > 0 ? 70 : 0),
     spin: Math.random() * Math.PI,
     bad,
     bonus,
+    powerup,
     food,
+    near: false,
   });
 }
 
@@ -141,10 +165,15 @@ function addFloater(text, x, y, color = "#f8f0c9") {
 }
 
 function step(dt) {
+  const rawDt = dt;
   if (slowMo > 0) {
     slowMo -= dt;
     dt *= 0.58;
   }
+  magnet = Math.max(0, magnet - rawDt);
+  shield = Math.max(0, shield - rawDt);
+  rush = Math.max(0, rush - rawDt);
+  shake = Math.max(0, shake - rawDt);
 
   let dir = 0;
   if (keys.has("ArrowLeft") || keys.has("a") || keys.has("A")) dir -= 1;
@@ -156,11 +185,20 @@ function step(dt) {
   spawnTimer -= dt;
   if (spawnTimer <= 0) {
     spawnDrop();
-    spawnTimer = Math.max(0.28, 0.82 - score / 4200);
+    spawnTimer = Math.max(0.2, 0.82 - level * 0.045 - (rush > 0 ? 0.12 : 0));
   }
 
   for (let i = drops.length - 1; i >= 0; i -= 1) {
     const drop = drops[i];
+    if (!drop.bad && magnet > 0) {
+      const dx = chef.x - drop.x;
+      const dy = chef.y - drop.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 210 && dist > 1) {
+        drop.x += (dx / dist) * 240 * dt;
+        drop.y += (dy / dist) * 80 * dt;
+      }
+    }
     drop.y += drop.vy * dt;
     drop.spin += dt * 5;
 
@@ -172,18 +210,36 @@ function step(dt) {
     if (caught) {
       drops.splice(i, 1);
       if (drop.bad) {
-        lives -= 1;
-        streak = 1;
-        addSparks(drop.x, drop.y, "#e45c47", 16);
-        beep(90, 0.18, "sawtooth", 0.06);
+        if (shield > 0) {
+          shield = 0;
+          addFloater("BLOCK!", drop.x, drop.y, "#a987ff");
+          addSparks(drop.x, drop.y, "#a987ff", 22);
+          beep(520, 0.11, "square", 0.05);
+        } else {
+          lives -= 1;
+          streak = 1;
+          comboCatches = 0;
+          shake = 0.28;
+          addSparks(drop.x, drop.y, "#e45c47", 20);
+          addFloater("OUCH!", drop.x, drop.y, "#e45c47");
+          beep(90, 0.18, "sawtooth", 0.06);
+        }
       } else {
         if (drop.bonus) {
-          slowMo = 4;
+          if (drop.powerup.type === "slow") slowMo = 4;
+          if (drop.powerup.type === "magnet") magnet = 6;
+          if (drop.powerup.type === "shield") shield = 9;
           score += 50 * streak;
-          addFloater("SLOW!", drop.x, drop.y, "#f4d35e");
+          addFloater(drop.powerup.text, drop.x, drop.y, drop.powerup.color);
           beep(720, 0.12, "triangle", 0.05);
         } else {
-          score += drop.food.points * streak;
+          score += drop.food.points * streak * (rush > 0 ? 2 : 1);
+        }
+        comboCatches += 1;
+        if (comboCatches > 0 && comboCatches % 10 === 0) {
+          rush = 6;
+          addFloater("RUSH MODE!", W / 2, chef.y - 90, "#f4d35e");
+          beep(880, 0.14, "square", 0.05);
         }
         streak = Math.min(streak + 1, 9);
         addSparks(drop.x, drop.y, drop.food.color, 12);
@@ -194,8 +250,19 @@ function step(dt) {
       drops.splice(i, 1);
       if (!drop.bad) {
         streak = 1;
+        comboCatches = 0;
         updateHud();
       }
+    } else if (
+      drop.bad &&
+      !drop.near &&
+      drop.y > chef.y - 12 &&
+      Math.abs(drop.x - chef.x) < chef.w / 2 + drop.r + 36
+    ) {
+      drop.near = true;
+      score += 5;
+      addFloater("+5 NEAR", drop.x, chef.y - 42, "#98c7bd");
+      updateHud();
     }
   }
 
@@ -221,7 +288,10 @@ function step(dt) {
     localStorage.setItem("comet-kitchen-best", String(best));
     updateHud();
     panel.querySelector("h1").textContent = "Kitchen closed";
-    panel.querySelector("p").textContent = `Final score: ${score}. The moon is already asking for seconds.`;
+    panel.querySelector("p").textContent =
+      score >= best
+        ? `New best: ${score}. That run had moon-kitchen legend energy.`
+        : `Final score: ${score}. Best: ${best}. One cleaner combo could beat it.`;
     startButton.textContent = "Cook again";
     panel.classList.remove("hidden");
   }
@@ -286,18 +356,19 @@ function drawDrop(drop) {
     ctx.fillStyle = "#e45c47";
     ctx.fillRect(-4, -drop.r - 8, 8, 13);
   } else {
-    ctx.fillStyle = drop.bonus ? "#f4b84a" : drop.food.color;
+    ctx.fillStyle = drop.bonus ? drop.powerup.color : drop.food.color;
     ctx.beginPath();
     ctx.roundRect(-drop.r, -drop.r, drop.r * 2, drop.r * 2, drop.bonus ? 14 : 8);
     ctx.fill();
     ctx.fillStyle = "rgba(255,255,255,0.5)";
     ctx.fillRect(-drop.r + 7, -drop.r + 6, 9, 4);
     if (drop.bonus) {
+      ctx.rotate(-drop.spin);
       ctx.fillStyle = "#241307";
       ctx.font = "700 18px system-ui";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("T", 0, 2);
+      ctx.fillText(drop.powerup.label, 0, 2);
     }
   }
   ctx.restore();
@@ -319,9 +390,17 @@ function render(t) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.restore();
   ctx.setTransform(viewport.scale, 0, 0, viewport.scale, viewport.offsetX, viewport.offsetY);
+  ctx.save();
+  if (shake > 0) {
+    ctx.translate((Math.random() - 0.5) * 14 * shake * 4, (Math.random() - 0.5) * 10 * shake * 4);
+  }
   drawBackground(t);
   if (slowMo > 0) {
     ctx.fillStyle = "rgba(244, 184, 74, 0.08)";
+    ctx.fillRect(0, 0, W, H);
+  }
+  if (rush > 0) {
+    ctx.fillStyle = "rgba(242, 93, 120, 0.09)";
     ctx.fillRect(0, 0, W, H);
   }
   drops.forEach(drawDrop);
@@ -341,6 +420,8 @@ function render(t) {
   });
   drawChef();
   drawLives();
+  drawPowerMeters();
+  ctx.restore();
   if (paused) {
     ctx.fillStyle = "rgba(8, 12, 11, 0.56)";
     ctx.fillRect(0, 0, W, H);
@@ -349,6 +430,41 @@ function render(t) {
     ctx.textAlign = "center";
     ctx.fillText("Paused", W / 2, H / 2);
   }
+}
+
+function drawPowerMeters() {
+  const comboGoal = 10;
+  const comboProgress = (comboCatches % comboGoal) / comboGoal;
+  const barX = W / 2 - 150;
+  const barY = H - 48;
+  ctx.fillStyle = "rgba(8, 12, 11, 0.68)";
+  ctx.fillRect(barX, barY, 300, 24);
+  ctx.fillStyle = rush > 0 ? "#f25d78" : "#98c7bd";
+  ctx.fillRect(barX, barY, 300 * (rush > 0 ? 1 : comboProgress), 24);
+  ctx.fillStyle = "#f6f0df";
+  ctx.font = "900 18px system-ui";
+  ctx.textAlign = "center";
+  ctx.fillText(rush > 0 ? "RUSH MODE" : `RUSH ${comboCatches % comboGoal}/${comboGoal}`, W / 2, barY + 18);
+
+  const meters = [
+    { label: "RUSH", value: rush / 6, color: "#f25d78" },
+    { label: "MAG", value: magnet / 6, color: "#64d2ff" },
+    { label: "SAFE", value: shield / 9, color: "#a987ff" },
+    { label: "SLOW", value: slowMo / 4, color: "#f4b84a" },
+  ].filter((meter) => meter.value > 0);
+
+  meters.forEach((meter, i) => {
+    const x = W - 190;
+    const y = H - 36 - i * 24;
+    ctx.fillStyle = "rgba(8, 12, 11, 0.68)";
+    ctx.fillRect(x, y, 150, 13);
+    ctx.fillStyle = meter.color;
+    ctx.fillRect(x, y, 150 * Math.min(meter.value, 1), 13);
+    ctx.fillStyle = "#f6f0df";
+    ctx.font = "800 10px system-ui";
+    ctx.textAlign = "left";
+    ctx.fillText(meter.label, x + 6, y + 10);
+  });
 }
 
 function loop(t) {

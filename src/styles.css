@@ -67,7 +67,7 @@ canvas {
 .hud > div,
 .icon-button {
   height: 46px;
-  min-width: 92px;
+  min-width: 86px;
   padding: 8px 14px;
   border: 1px solid rgba(246, 240, 223, 0.18);
   border-radius: 8px;
@@ -161,7 +161,7 @@ p {
   }
 
   .hud > div {
-    min-width: 68px;
+    min-width: 58px;
     padding: 8px 10px;
   }
 
