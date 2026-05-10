@@ -22,8 +22,9 @@ body {
   place-items: center;
   overflow: hidden;
   background:
-    radial-gradient(circle at 20% 12%, rgba(255, 197, 87, 0.18), transparent 24rem),
-    linear-gradient(135deg, #10201f 0%, #271b22 48%, #12202b 100%);
+    radial-gradient(circle at 18% 10%, rgba(244, 184, 74, 0.2), transparent 28rem),
+    radial-gradient(circle at 82% 18%, rgba(100, 210, 255, 0.16), transparent 34rem),
+    linear-gradient(135deg, #081413 0%, #241722 52%, #071823 100%);
 }
 
 button {
@@ -45,10 +46,12 @@ canvas {
   width: 100%;
   height: 100%;
   display: block;
-  border: 2px solid rgba(246, 240, 223, 0.2);
+  border: 2px solid rgba(151, 214, 201, 0.32);
   border-radius: 8px;
   background: #172421;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+  box-shadow:
+    inset 0 0 48px rgba(151, 214, 201, 0.08),
+    0 24px 90px rgba(0, 0, 0, 0.5);
   touch-action: none;
 }
 
@@ -71,8 +74,9 @@ canvas {
   padding: 8px 14px;
   border: 1px solid rgba(246, 240, 223, 0.18);
   border-radius: 8px;
-  background: rgba(12, 17, 16, 0.72);
+  background: linear-gradient(180deg, rgba(12, 24, 22, 0.86), rgba(8, 12, 11, 0.78));
   backdrop-filter: blur(14px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 10px 24px rgba(0, 0, 0, 0.24);
 }
 
 .hud > div {
@@ -113,8 +117,9 @@ canvas {
   padding: 22px;
   border: 1px solid rgba(246, 240, 223, 0.18);
   border-radius: 8px;
-  background: rgba(10, 15, 14, 0.82);
+  background: linear-gradient(180deg, rgba(14, 20, 19, 0.92), rgba(7, 10, 10, 0.86));
   backdrop-filter: blur(16px);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.36);
   text-align: center;
 }
 
@@ -145,6 +150,7 @@ p {
   background: #f4b84a;
   color: #1b1307;
   font-weight: 900;
+  box-shadow: 0 10px 28px rgba(244, 184, 74, 0.24);
 }
 
 @media (max-width: 680px) {
